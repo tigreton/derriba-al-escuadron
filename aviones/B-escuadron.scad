@@ -20,15 +20,17 @@ mostrar_nubes = true;
 mostrar_anillos = true;
 
 /* [Aviones] */
-// Posición 1, centro izquierda (pensada para el gigante)
+// Dónde van los aviones. Todas las disposiciones usan la misma lámina, tipos y pestañas
+disposicion = "clasica"; // [clasica:Clásica - en desbandada, flecha:Flecha - escuadrón en formación]
+// Posición 1, pensada para el gigante (clásica: centro izquierda; flecha: en cabeza)
 posicion_1 = "gigante"; // [pequeno:Pequeño - avioneta, mediano:Mediano - reactor delta, grande:Grande - caza, enorme:Enorme - transporte, gigante:Gigante - bombardero]
-// Posición 2, abajo derecha (pensada para el enorme)
+// Posición 2, pensada para el enorme (clásica: abajo derecha; flecha: ala derecha)
 posicion_2 = "enorme"; // [pequeno:Pequeño - avioneta, mediano:Mediano - reactor delta, grande:Grande - caza, enorme:Enorme - transporte, gigante:Gigante - bombardero]
-// Posición 3, arriba derecha (pensada para el grande)
+// Posición 3, pensada para el grande (clásica: arriba derecha; flecha: ala izquierda)
 posicion_3 = "grande"; // [pequeno:Pequeño - avioneta, mediano:Mediano - reactor delta, grande:Grande - caza, enorme:Enorme - transporte, gigante:Gigante - bombardero]
-// Posición 4, abajo izquierda (pensada para el mediano)
+// Posición 4, pensada para el mediano (clásica: abajo izquierda; flecha: en el centro)
 posicion_4 = "mediano"; // [pequeno:Pequeño - avioneta, mediano:Mediano - reactor delta, grande:Grande - caza, enorme:Enorme - transporte, gigante:Gigante - bombardero]
-// Posición 5, abajo centro (pensada para el pequeño)
+// Posición 5, pensada para el pequeño (clásica: abajo centro; flecha: cerrando la cola)
 posicion_5 = "pequeno"; // [pequeno:Pequeño - avioneta, mediano:Mediano - reactor delta, grande:Grande - caza, enorme:Enorme - transporte, gigante:Gigante - bombardero]
 // Diámetro de la diana de cada tamaño, de pequeño a gigante
 diametros_diana = [6, 7, 9, 11, 14];
@@ -103,14 +105,55 @@ TIPOS = [
     ["enorme",  "enorme",  "Transporte",    [56, 16, 24, 10, 13, 7,   2,    22, 7, 1.5]],
     ["gigante", "gigante", "Bombardero",    [70, 20, 28, 12, 16, 8,   3,    28, 8, 2  ]],
 ];
-// Posiciones en la lámina: [x, y, giro, [x, y] de la insignia, tipo para el que está pensado el sitio]
-POSICIONES = [
-    [ 48,  83, -45, [ 78,  81], 4],
-    [106,  43,   0, [129,  27], 3],
-    [108, 109, -90, [127, 127], 2],
-    [ 28,  27, -30, [ 12,  47], 1],
-    [ 66,  21,  20, [ 88,  13], 0],
+// Disposiciones: [clave, posiciones, nubes, soportes de la versión mínima]
+//  Posiciones: [x, y, giro, [x, y] de la insignia, tipo para el que está pensado el sitio]
+//  Nubes: [x, y, escala]
+//  Soportes: [posición, punto del avión, destino]. El destino es un borde ("izq", "der", "arr", "aba")
+//  o [posición, punto] de otro avión. Puntos: ala_izq, ala_der, cola, morro
+DISPOSICIONES = [
+    ["clasica",
+        [[ 48,  83, -45, [ 78,  81], 4],
+         [106,  43,   0, [129,  27], 3],
+         [108, 109, -90, [127, 127], 2],
+         [ 28,  27, -30, [ 12,  47], 1],
+         [ 66,  21,  20, [ 88,  13], 0]],
+        [[18, 123, 0.8], [60, 126, 0.8], [124, 77, 0.7], [86, 67, 0.7], [106, 9, 0.8], [12, 69, 0.6]],
+        [[0, "ala_izq", "izq"],
+         [0, "cola",    "izq"],
+         [0, "ala_der", [1, "ala_izq"]],
+         [1, "ala_der", "der"],
+         [1, "cola",    "aba"],
+         [2, "ala_izq", "arr"],
+         [2, "morro",   "der"],
+         [3, "ala_izq", "izq"],
+         [3, "ala_der", "aba"],
+         [4, "cola",    "aba"],
+         [4, "ala_der", [1, "ala_izq"]]]],
+    // Todos rumbo a la esquina de arriba a la derecha: el gigante en cabeza, el enorme y el grande
+    // en las alas, y el mediano y el pequeño en fila detrás del jefe
+    ["flecha",
+        [[100, 100, -45, [123, 123], 4],
+         [101,  36, -45, [124,  46], 3],
+         [ 36, 102, -45, [ 12, 124], 2],
+         [ 59,  59, -45, [ 30,  62], 1],
+         [ 28,  28, -45, [ 12,  12], 0]],
+        [[62, 117, 0.8], [18, 76, 0.7], [112, 62, 0.8], [68, 13, 0.8], [62, 80, 0.6], [50, 35, 0.6]],
+        [[0, "ala_izq", "arr"],
+         [0, "ala_der", "der"],
+         [0, "cola",    [3, "morro"]],
+         [1, "ala_der", "aba"],
+         [1, "cola",    "aba"],
+         [2, "ala_izq", "izq"],
+         [2, "cola",    "izq"],
+         [3, "ala_izq", [2, "ala_der"]],
+         [3, "ala_der", [1, "ala_izq"]],
+         [4, "ala_izq", "izq"],
+         [4, "ala_der", "aba"]]],
 ];
+DISPOSICION = [for (d = DISPOSICIONES) if (d[0] == disposicion) d][0];
+POSICIONES = DISPOSICION[1];
+NUBES = DISPOSICION[2];
+UNIONES = DISPOSICION[3];
 ELEGIDOS = [posicion_1, posicion_2, posicion_3, posicion_4, posicion_5];
 
 function tipo_idx(clave) = [for (i = [0:len(TIPOS) - 1]) if (TIPOS[i][0] == clave) i][0];
@@ -141,21 +184,7 @@ AVIONES = [for (k = [0:len(POSICIONES) - 1]) let(
     [str(TIPOS[t][2], " (", TIPOS[t][1], ")"), p[0], p[1], p[2], d, puntos_diana(d), p[3],
      engordar(TIPOS[t][3], f), t, p[4], f]];
 
-// Versión mínima: soportes [posición, punto del avión, destino]. El destino es un borde
-// ("izq", "der", "arr", "aba") o [posición, punto] de otro avión. Puntos: ala_izq, ala_der, cola, morro
-UNIONES = [
-    [0, "ala_izq", "izq"],
-    [0, "cola",    "izq"],
-    [0, "ala_der", [1, "ala_izq"]],
-    [1, "ala_der", "der"],
-    [1, "cola",    "aba"],
-    [2, "ala_izq", "arr"],
-    [2, "morro",   "der"],
-    [3, "ala_izq", "izq"],
-    [3, "ala_der", "aba"],
-    [4, "cola",    "aba"],
-    [4, "ala_der", [1, "ala_izq"]],
-];
+// Versión mínima: dónde se agarra cada soporte (los soportes de cada disposición van en DISPOSICIONES)
 function ancla_local(g, cual) = let(tip_y = g[4] / 2 - g[6] - g[5] / 2)
     cual == "ala_izq" ? [-(g[0] / 2 - 2.5), tip_y] :
     cual == "ala_der" ? [g[0] / 2 - 2.5, tip_y] :
@@ -165,9 +194,8 @@ function ancla(k, cual) = let(a = AVIONES[k], q = ancla_local(a[7], cual))
 function destino(q, d) = d == "izq" ? [0, q[1]] : d == "der" ? [lado, q[1]] :
     d == "aba" ? [q[0], 0] : d == "arr" ? [q[0], lado] : ancla(d[0], d[1]);
 SOPORTES = [for (u = UNIONES) let(q = ancla(u[0], u[1])) [q, destino(q, u[2])]];
-// [x, y, escala]
-NUBES = [[18, 123, 0.8], [60, 126, 0.8], [124, 77, 0.7], [86, 67, 0.7], [106, 9, 0.8], [12, 69, 0.6]];
 
+assert(DISPOSICION != undef, str("No hay ninguna disposición llamada \"", disposicion, "\""));
 if (ALTURA > 3) echo(str("AVISO: la lámina mide ", ALTURA, " mm, pasa de 3 mm"));
 assert(relieve_bajo <= relieve_alto, "relieve_bajo debe ser <= relieve_alto");
 assert(pestana_grosor < GROSOR, "La pestaña debe ser más fina que la lámina");
@@ -373,7 +401,7 @@ for (k = [0:len(AVIONES) - 1]) {
                  "). Mira la vista previa por si se solapa con otro"));
 }
 echo(str("Pestaña: ", pestana_grosor, " x ", pestana_ancho, " mm, largo libre ", pestana_largo, " mm"));
-echo(str("Versión ", version, ": lámina ", GROSOR, " mm, altura total ", ALTURA, " mm",
+echo(str("Versión ", version, ", disposición ", disposicion, ": lámina ", GROSOR, " mm, altura total ", ALTURA, " mm",
          CON_RELIEVE ? "" : " (sin relieve)"));
 if (parte == "relieve" && !CON_RELIEVE) echo("AVISO: esta versión no tiene relieve, la pieza sale vacía");
 
