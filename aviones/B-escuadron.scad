@@ -19,6 +19,22 @@ mostrar_marco = true;
 mostrar_nubes = true;
 mostrar_anillos = true;
 
+/* [Aviones] */
+// Posición 1, centro izquierda (pensada para el gigante)
+posicion_1 = "gigante"; // [pequeno:Pequeño - avioneta, mediano:Mediano - reactor delta, grande:Grande - caza, enorme:Enorme - transporte, gigante:Gigante - bombardero]
+// Posición 2, abajo derecha (pensada para el enorme)
+posicion_2 = "enorme"; // [pequeno:Pequeño - avioneta, mediano:Mediano - reactor delta, grande:Grande - caza, enorme:Enorme - transporte, gigante:Gigante - bombardero]
+// Posición 3, arriba derecha (pensada para el grande)
+posicion_3 = "grande"; // [pequeno:Pequeño - avioneta, mediano:Mediano - reactor delta, grande:Grande - caza, enorme:Enorme - transporte, gigante:Gigante - bombardero]
+// Posición 4, abajo izquierda (pensada para el mediano)
+posicion_4 = "mediano"; // [pequeno:Pequeño - avioneta, mediano:Mediano - reactor delta, grande:Grande - caza, enorme:Enorme - transporte, gigante:Gigante - bombardero]
+// Posición 5, abajo centro (pensada para el pequeño)
+posicion_5 = "pequeno"; // [pequeno:Pequeño - avioneta, mediano:Mediano - reactor delta, grande:Grande - caza, enorme:Enorme - transporte, gigante:Gigante - bombardero]
+// Diámetro de la diana de cada tamaño, de pequeño a gigante
+diametros_diana = [6, 7, 9, 11, 14];
+// Inversa: cuanto más grande el avión, más pequeña la diana (y más puntos vale)
+diana_inversa = false;
+
 /* [Versión mínima] */
 // Marco exterior que sujeta todo y encaja en el portadianas
 marco_minima = 4;
@@ -78,35 +94,66 @@ CON_RELIEVE_ALTO = CON_NUMEROS || CON_REBORDES || CON_MARCO;
 CON_RELIEVE = CON_RELIEVE_ALTO || CON_NUBES || CON_ANILLOS;
 ALTURA = GROSOR + (CON_RELIEVE_ALTO ? relieve_alto : CON_RELIEVE ? relieve_bajo : 0);
 
-// [nombre, x, y, giro, Ø diana, puntos, [x, y] de la insignia,
+// Tipos de avión, de pequeño a gigante: [clave, tamaño, nombre,
 //  [envergadura, morro, cola, fuselaje, cuerda raíz, cuerda punta, flecha, env. cola, cuerda cola, flecha cola]]
-AVIONES = [
-    ["Bombardero",     48,  83, -45, 14, 1, [ 78,  81], [70, 20, 28, 12, 16, 8,   3,    28, 8, 2  ]],
-    ["Transporte",    106,  43,   0, 11, 2, [129,  27], [56, 16, 24, 10, 13, 7,   2,    22, 7, 1.5]],
-    ["Caza",          108, 109, -90,  9, 3, [127, 127], [44, 18, 22,  8, 14, 5,  11,    18, 6, 3  ]],
-    ["Reactor delta",  28,  27, -30,  7, 4, [ 12,  47], [34, 15, 13,  6, 24, 2.5, 21.5,  0, 0, 0  ]],
-    ["Avioneta",       66,  21,  20,  6, 5, [ 88,  13], [30,  9, 14,  6,  8, 5,   0.5,  12, 4, 0.5]],
+TIPOS = [
+    ["pequeno", "pequeño", "Avioneta",      [30,  9, 14,  6,  8, 5,   0.5,  12, 4, 0.5]],
+    ["mediano", "mediano", "Reactor delta", [34, 15, 13,  6, 24, 2.5, 21.5,  0, 0, 0  ]],
+    ["grande",  "grande",  "Caza",          [44, 18, 22,  8, 14, 5,  11,    18, 6, 3  ]],
+    ["enorme",  "enorme",  "Transporte",    [56, 16, 24, 10, 13, 7,   2,    22, 7, 1.5]],
+    ["gigante", "gigante", "Bombardero",    [70, 20, 28, 12, 16, 8,   3,    28, 8, 2  ]],
 ];
-// Versión mínima: soportes [punto en el avión, punto en el borde]; se recortan al tamaño de la lámina
-SOPORTES = [
-    [[ 25.7, 106.7], [  0, 106.7]],   // bombardero, ala izquierda
-    [[ 29.6,  64.6], [  0,  64.6]],   // bombardero, cola
-    [[ 71.7,  60.7], [ 80.5,  44  ]], // bombardero - transporte
-    [[131.5,  44  ], [139,  44  ]],   // transporte, ala derecha
-    [[106,    21  ], [106,   0  ]],   // transporte, cola
-    [[101.5, 128.5], [101.5, 139]],   // caza, ala izquierda
-    [[123,   109  ], [139, 109  ]],   // caza, morro
-    [[ 10.1,  24.9], [  0,  24.9]],   // delta, ala izquierda
-    [[ 35.2,  10.4], [ 35.2,  0 ]],   // delta, ala derecha
-    [[ 70.1,   9.7], [ 70.1,  0 ]],   // avioneta, cola
-    [[ 77.4,  26.2], [ 80.5,  44]],   // avioneta - transporte
+// Posiciones en la lámina: [x, y, giro, [x, y] de la insignia, tipo para el que está pensado el sitio]
+POSICIONES = [
+    [ 48,  83, -45, [ 78,  81], 4],
+    [106,  43,   0, [129,  27], 3],
+    [108, 109, -90, [127, 127], 2],
+    [ 28,  27, -30, [ 12,  47], 1],
+    [ 66,  21,  20, [ 88,  13], 0],
 ];
+ELEGIDOS = [posicion_1, posicion_2, posicion_3, posicion_4, posicion_5];
+
+function tipo_idx(clave) = [for (i = [0:len(TIPOS) - 1]) if (TIPOS[i][0] == clave) i][0];
+function diametro_tipo(i) = diana_inversa ? diametros_diana[len(TIPOS) - 1 - i] : diametros_diana[i];
+// Cuanto más pequeña la diana, más puntos: la más pequeña vale 5 y la más grande 1
+function puntos_diana(d) = 1 + len([for (x = diametros_diana) if (x > d) x]);
+
+// [nombre, x, y, giro, Ø diana, puntos, [x, y] de la insignia, geometría, tipo, tipo previsto]
+AVIONES = [for (k = [0:len(POSICIONES) - 1]) let(
+        p = POSICIONES[k], t = tipo_idx(ELEGIDOS[k]), d = diametro_tipo(t))
+    [str(TIPOS[t][2], " (", TIPOS[t][1], ")"), p[0], p[1], p[2], d, puntos_diana(d), p[3], TIPOS[t][3], t, p[4]]];
+
+// Versión mínima: soportes [posición, punto del avión, destino]. El destino es un borde
+// ("izq", "der", "arr", "aba") o [posición, punto] de otro avión. Puntos: ala_izq, ala_der, cola, morro
+UNIONES = [
+    [0, "ala_izq", "izq"],
+    [0, "cola",    "izq"],
+    [0, "ala_der", [1, "ala_izq"]],
+    [1, "ala_der", "der"],
+    [1, "cola",    "aba"],
+    [2, "ala_izq", "arr"],
+    [2, "morro",   "der"],
+    [3, "ala_izq", "izq"],
+    [3, "ala_der", "aba"],
+    [4, "cola",    "aba"],
+    [4, "ala_der", [1, "ala_izq"]],
+];
+function ancla_local(g, cual) = let(tip_y = g[4] / 2 - g[6] - g[5] / 2)
+    cual == "ala_izq" ? [-(g[0] / 2 - 2.5), tip_y] :
+    cual == "ala_der" ? [g[0] / 2 - 2.5, tip_y] :
+    cual == "cola" ? [0, -(g[2] - 2)] : [0, g[1] - 3];
+function ancla(k, cual) = let(a = AVIONES[k], q = ancla_local(a[7], cual))
+    [a[1] + q[0] * cos(a[3]) - q[1] * sin(a[3]), a[2] + q[0] * sin(a[3]) + q[1] * cos(a[3])];
+function destino(q, d) = d == "izq" ? [0, q[1]] : d == "der" ? [lado, q[1]] :
+    d == "aba" ? [q[0], 0] : d == "arr" ? [q[0], lado] : ancla(d[0], d[1]);
+SOPORTES = [for (u = UNIONES) let(q = ancla(u[0], u[1])) [q, destino(q, u[2])]];
 // [x, y, escala]
 NUBES = [[18, 123, 0.8], [60, 126, 0.8], [124, 77, 0.7], [86, 67, 0.7], [106, 9, 0.8], [12, 69, 0.6]];
 
 if (ALTURA > 3) echo(str("AVISO: la lámina mide ", ALTURA, " mm, pasa de 3 mm"));
 assert(relieve_bajo <= relieve_alto, "relieve_bajo debe ser <= relieve_alto");
 assert(pestana_grosor < GROSOR, "La pestaña debe ser más fina que la lámina");
+assert(len(diametros_diana) == len(TIPOS), "diametros_diana necesita un diámetro por tamaño (5)");
 
 // ---------------- geometría ----------------
 function bez2(p0, p1, p2, n = 8) = [for (i = [0:n]) let(t = i / n) (1 - t) * (1 - t) * p0 + 2 * (1 - t) * t * p1 + t * t * p2];
@@ -140,31 +187,40 @@ module en_avion(a) translate([a[1], a[2]]) rotate(a[3]) children();
 
 // ---------------- piezas 2D ----------------
 module placa() offset(r = radio_esquina) offset(delta = -radio_esquina) square(lado);
-module huecos() for (a = AVIONES) en_avion(a) polygon(silueta(a[7]));
+// Silueta del avión; si la diana no cabe en el cruce de ala y fuselaje, el centro se ensancha en redondo
+module silueta_2d(a, margen) en_avion(a) union() {
+    polygon(silueta(a[7]));
+    circle(r = radio(a) + margen, $fn = 72);
+}
+// Si el centro tiene que ensancharse, el hueco queda del largo de la pestaña (y nunca menos que holgura_min)
+MARGEN_HUECO = max(holgura_min, pestana_largo);
+module huecos() for (a = AVIONES) silueta_2d(a, MARGEN_HUECO);
 module cielo() difference() { placa(); huecos(); }
 module discos() for (a = AVIONES) en_avion(a) circle(r = radio(a), $fn = 72);
 
+// Distancia del centro de la diana al borde del hueco, en la dirección de la pestaña
+function dist_borde(a) = max(norm(punto_cercano(silueta(a[7]))), radio(a) + MARGEN_HUECO);
 // Largo libre real de la pestaña: el pedido, o el hueco entero si no da para más
-function largo_libre(a) = min(pestana_largo, norm(punto_cercano(silueta(a[7]))) - radio(a));
+function largo_libre(a) = min(pestana_largo, dist_borde(a) - radio(a));
 
 // Pestaña fina: va del centro de la diana hasta dentro de la lámina (lo que queda tapado no se ve)
 module pestanas() if (MINIMA) pestanas_minima(); else for (a = AVIONES) {
     q = punto_cercano(silueta(a[7]));
     en_avion(a) rotate(atan2(q[1], q[0]))
-        translate([0, -pestana_ancho / 2]) square([norm(q) + pestana_solape, pestana_ancho]);
+        translate([0, -pestana_ancho / 2]) square([dist_borde(a) + pestana_solape, pestana_ancho]);
 }
 
 // Saliente de la lámina (grosor completo) que rellena el hueco hasta dejar solo pestana_largo libre
 module anclajes() for (a = AVIONES) {
     q = punto_cercano(silueta(a[7]));
     desde = radio(a) + largo_libre(a);
-    if (norm(q) - desde > 0.01)
+    if (dist_borde(a) - desde > 0.01)
         en_avion(a) rotate(atan2(q[1], q[0]))
-            translate([desde, -anclaje_ancho / 2]) square([norm(q) - desde + pestana_solape, anclaje_ancho]);
+            translate([desde, -anclaje_ancho / 2]) square([dist_borde(a) - desde + pestana_solape, anclaje_ancho]);
 }
 
-// Versión mínima: hueco alrededor de la diana dentro del avión macizo
-function hueco_min(a) = min(pestana_largo, norm(punto_cercano(silueta(a[7]))) - radio(a) - pared_min);
+// Versión mínima: el hueco alrededor de la diana es el largo de la pestaña
+function hueco_min(a) = pestana_largo;
 
 module soportes() for (s = SOPORTES)
     hull() { translate(s[0]) circle(d = soporte_ancho); translate(s[1]) circle(d = soporte_ancho); }
@@ -174,7 +230,7 @@ module estructura_minima() difference() {
         placa();
         union() {
             difference() { placa(); offset(delta = -marco_minima) placa(); }
-            for (a = AVIONES) en_avion(a) polygon(silueta(a[7]));
+            for (a = AVIONES) silueta_2d(a, hueco_min(a) + pared_min);
             soportes();
         }
     }
@@ -287,18 +343,17 @@ module probeta() {
 
 // ---------------- comprobaciones ----------------
 function r2(x) = round(x * 100) / 100;
-if (MINIMA) for (a = AVIONES) {
-    hm = hueco_min(a);
-    echo(str(a[0], ": diana Ø", r2(2 * radio(a)), " mm, hueco ", r2(hm), " mm, pared de avión ",
-             r2(norm(punto_cercano(silueta(a[7]))) - radio(a) - hm), " mm",
-             hm < holgura_min ? "  <-- HUECO DEMASIADO JUSTO" : ""));
-}
-if (!MINIMA) for (a = AVIONES) {
-    h = norm(punto_cercano(silueta(a[7]))) - radio(a);
-    echo(str(a[0], ": diana Ø", r2(2 * radio(a)), " mm, hueco ", r2(h), " mm, pestaña libre ", r2(largo_libre(a)),
-             " mm, saliente ", r2(h - largo_libre(a)), " mm",
-             h < holgura_min ? "  <-- HUECO DEMASIADO JUSTO" : "",
-             pestana_largo > h ? "  <-- el hueco no da para el largo pedido" : ""));
+for (k = [0:len(AVIONES) - 1]) {
+    a = AVIONES[k];
+    hp = norm(punto_cercano(silueta(a[7]))) - radio(a);
+    h = MINIMA ? hueco_min(a) : dist_borde(a) - radio(a);
+    echo(str("Posición ", k + 1, ": ", a[0], ", diana Ø", r2(2 * radio(a)), " mm, ", a[5], a[5] == 1 ? " punto" : " puntos", ", hueco ", r2(h), " mm",
+             MINIMA ? "" : str(", pestaña libre ", r2(largo_libre(a)), " mm, saliente ", r2(h - largo_libre(a)), " mm"),
+             h < holgura_min - 0.001 ? "  <-- HUECO DEMASIADO JUSTO" : "",
+             (MINIMA ? hp < h + pared_min : hp < MARGEN_HUECO) ? "  (el centro del avión se ensancha para que quepa la diana)" : ""));
+    if (TIPOS[a[8]][3][0] > TIPOS[a[9]][3][0])
+        echo(str("AVISO: en la posición ", k + 1, " hay un avión más grande que el previsto (", TIPOS[a[9]][2],
+                 "). Mira la vista previa por si se solapa con otro"));
 }
 echo(str("Pestaña: ", pestana_grosor, " x ", pestana_ancho, " mm, largo libre ", pestana_largo, " mm"));
 echo(str("Versión ", version, ": lámina ", GROSOR, " mm, altura total ", ALTURA, " mm",
