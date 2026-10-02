@@ -118,10 +118,28 @@ function diametro_tipo(i) = diana_inversa ? diametros_diana[len(TIPOS) - 1 - i] 
 // Cuanto más pequeña la diana, más puntos: la más pequeña vale 5 y la más grande 1
 function puntos_diana(d) = 1 + len([for (x = diametros_diana) if (x > d) x]);
 
-// [nombre, x, y, giro, Ø diana, puntos, [x, y] de la insignia, geometría, tipo, tipo previsto]
+// Si el centro tiene que ensancharse, el hueco queda del largo de la pestaña (y nunca menos que holgura_min)
+MARGEN_HUECO = max(holgura_min, pestana_largo);
+// Lo que necesita la diana a su alrededor: hueco, y en la versión mínima además la pared de avión
+MARGEN_DIANA = MINIMA ? pestana_largo + pared_min : MARGEN_HUECO;
+
+// Avión más rechoncho: fuselaje, raíz del ala y cola más anchos; la envergadura no cambia
+function engordar(g, f) = let(cr = g[4] * f) [
+    g[0],
+    max(g[1], cr / 2 + 3),
+    max(g[2], g[7] > 0 ? cr / 2 + g[8] + 1.5 : cr / 2 + 1),
+    g[3] * f, cr, g[5] * sqrt(f), g[6], g[7] * f, g[8], g[9]];
+function cabe(g, r) = norm(punto_cercano(silueta(g))) >= r + MARGEN_DIANA - 0.001;
+// El menor engorde (de 1 a 3) con el que cabe la diana
+function factor_engorde(g, r) = let(ok = [for (i = [0:40]) let(f = 1 + i * 0.05) if (cabe(engordar(g, f), r)) f])
+    len(ok) > 0 ? ok[0] : 3;
+
+// [nombre, x, y, giro, Ø diana, puntos, [x, y] de la insignia, geometría, tipo, tipo previsto, engorde]
 AVIONES = [for (k = [0:len(POSICIONES) - 1]) let(
-        p = POSICIONES[k], t = tipo_idx(ELEGIDOS[k]), d = diametro_tipo(t))
-    [str(TIPOS[t][2], " (", TIPOS[t][1], ")"), p[0], p[1], p[2], d, puntos_diana(d), p[3], TIPOS[t][3], t, p[4]]];
+        p = POSICIONES[k], t = tipo_idx(ELEGIDOS[k]), d = diametro_tipo(t),
+        f = factor_engorde(TIPOS[t][3], d * escala_diana / 2))
+    [str(TIPOS[t][2], " (", TIPOS[t][1], ")"), p[0], p[1], p[2], d, puntos_diana(d), p[3],
+     engordar(TIPOS[t][3], f), t, p[4], f]];
 
 // Versión mínima: soportes [posición, punto del avión, destino]. El destino es un borde
 // ("izq", "der", "arr", "aba") o [posición, punto] de otro avión. Puntos: ala_izq, ala_der, cola, morro
@@ -162,7 +180,7 @@ function bez2(p0, p1, p2, n = 8) = [for (i = [0:n]) let(t = i / n) (1 - t) * (1 
 function silueta(g) = let(
     S = g[0], morro = g[1], cola = g[2], hw = g[3] / 2, cr = g[4], ct = g[5], fl = g[6],
     ts = g[7], tc = g[8], tsw = g[9],
-    k = min(morro * 0.45, 2.2 * g[3]),
+    k = min(morro * 0.45, 2.2 * g[3], morro - cr / 2 - 0.5),
     der = concat(
         [[hw, cr / 2], [S / 2, cr / 2 - fl], [S / 2, cr / 2 - fl - ct], [hw, -cr / 2]],
         ts > 0 ? [[hw * 0.8, -(cola - tc)], [ts / 2, -(cola - tc + tsw)], [ts / 2, -cola], [hw * 0.5, -cola]]
@@ -192,8 +210,6 @@ module silueta_2d(a, margen) en_avion(a) union() {
     polygon(silueta(a[7]));
     circle(r = radio(a) + margen, $fn = 72);
 }
-// Si el centro tiene que ensancharse, el hueco queda del largo de la pestaña (y nunca menos que holgura_min)
-MARGEN_HUECO = max(holgura_min, pestana_largo);
 module huecos() for (a = AVIONES) silueta_2d(a, MARGEN_HUECO);
 module cielo() difference() { placa(); huecos(); }
 module discos() for (a = AVIONES) en_avion(a) circle(r = radio(a), $fn = 72);
@@ -350,7 +366,8 @@ for (k = [0:len(AVIONES) - 1]) {
     echo(str("Posición ", k + 1, ": ", a[0], ", diana Ø", r2(2 * radio(a)), " mm, ", a[5], a[5] == 1 ? " punto" : " puntos", ", hueco ", r2(h), " mm",
              MINIMA ? "" : str(", pestaña libre ", r2(largo_libre(a)), " mm, saliente ", r2(h - largo_libre(a)), " mm"),
              h < holgura_min - 0.001 ? "  <-- HUECO DEMASIADO JUSTO" : "",
-             (MINIMA ? hp < h + pared_min : hp < MARGEN_HUECO) ? "  (el centro del avión se ensancha para que quepa la diana)" : ""));
+             a[10] > 1 ? str("  (avión engordado x", a[10], " para que quepa la diana)") : "",
+             hp < MARGEN_DIANA - 0.001 ? "  (ni engordado cabe: el centro se ensancha en redondo)" : ""));
     if (TIPOS[a[8]][3][0] > TIPOS[a[9]][3][0])
         echo(str("AVISO: en la posición ", k + 1, " hay un avión más grande que el previsto (", TIPOS[a[9]][2],
                  "). Mira la vista previa por si se solapa con otro"));
