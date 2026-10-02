@@ -1,0 +1,3 @@
+# Binarios: que git no les cambie los saltos de línea (con core.autocrlf se estropean)
+*.pdf binary
+*.png binary

@@ -10,7 +10,9 @@ Uso:  python fondo_cielo.py [ppp]
 """
 import math, os, random, re, subprocess, sys, tempfile
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
+
+import hoja_a4
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "aviones", "fondo-cielo")
@@ -19,8 +21,6 @@ OPENSCAD = os.environ.get("OPENSCAD", r"C:\Program Files\OpenSCAD\openscad.com")
 PPP = int(sys.argv[1]) if len(sys.argv) > 1 else 600
 
 LADO, SANGRADO = 139.0, 3.0
-A4 = (210.0, 297.0)
-CORTE_X, CORTE_Y = (A4[0] - LADO) / 2, 32.0  # esquina del corte en la hoja
 
 CIELO_ARRIBA, CIELO_ABAJO = (52, 140, 222), (190, 224, 249)
 SOL = (0.0, 0.0)  # brillo suave en la esquina de arriba a la izquierda
@@ -185,127 +185,6 @@ def dibujo():
     return Image.fromarray(np.clip(img + 0.5, 0, 255).astype(np.uint8)), (x0, y0)
 
 
-# ---------------- hoja A4 ----------------
-GRIS = (90, 90, 90)
-
-
-def fuente(tam_mm, negrita=False):
-    nombre = "arialbd.ttf" if negrita else "arial.ttf"
-    for ruta in (os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts", nombre), nombre,
-                 "DejaVuSans-Bold.ttf" if negrita else "DejaVuSans.ttf"):
-        try:
-            return ImageFont.truetype(ruta, int(round(mm(tam_mm))))
-        except OSError:
-            pass
-    return ImageFont.load_default()
-
-
-def pagina():
-    pag = Image.new("RGB", (int(round(mm(A4[0]))), int(round(mm(A4[1])))), "white")
-    return pag, ImageDraw.Draw(pag)
-
-
-def raya(d, xa, ya, xb, yb):
-    d.line([(mm(xa), mm(ya)), (mm(xb), mm(yb))], fill="black", width=max(1, int(round(mm(0.25)))))
-
-
-def barra_escala(d, x, y, vertical=False):
-    """Barra de 100 mm en tramos de 10. (x, y) en mm es el cero; la vertical sube desde ahí."""
-    g = max(1, int(round(mm(0.25))))
-    for i in range(10):
-        if vertical:
-            caja = [mm(x), mm(y - i * 10 - 10), mm(x + 2.5), mm(y - i * 10)]
-        else:
-            caja = [mm(x + i * 10), mm(y), mm(x + i * 10 + 10), mm(y + 2.5)]
-        d.rectangle(caja, fill="black" if i % 2 == 0 else "white", outline="black", width=g)
-    for i in (0, 5, 10):
-        etiqueta = "100 mm" if i == 10 else str(i * 10)
-        if vertical:
-            d.text((mm(x + 3.8), mm(y - i * 10)), etiqueta, font=fuente(2.8), fill=GRIS, anchor="lm")
-        else:
-            d.text((mm(x + i * 10), mm(y + 3.8)), etiqueta, font=fuente(2.8), fill=GRIS, anchor="ma" if i else "la")
-
-
-def texto_girado(pag, x, y, texto, tam, negrita=False, color=(0, 0, 0)):
-    """Texto que se lee de abajo arriba. (x, y) en mm es la esquina de abajo a la izquierda."""
-    f = fuente(tam, negrita)
-    _, _, ancho, alto = f.getbbox(texto)
-    m = Image.new("L", (ancho, alto), 0)
-    ImageDraw.Draw(m).text((0, 0), texto, font=f, fill=255)
-    m = m.rotate(90, expand=True)
-    pag.paste(color, (int(round(mm(x))), int(round(mm(y))) - m.height), m)
-
-
-def hoja(fondo, esquina):
-    """Un fondo por A4, con sangrado en los cuatro lados, marcas de corte e instrucciones."""
-    pag, d = pagina()
-    pag.paste(fondo, (int(round(mm(CORTE_X + esquina[0]))), int(round(mm(CORTE_Y + esquina[1])))))
-
-    # marcas de corte: fuera del sangrado, alineadas con el borde de 139 mm
-    sep, largo = SANGRADO + 1.5, 6.0
-    for x in (CORTE_X, CORTE_X + LADO):
-        for y in (CORTE_Y, CORTE_Y + LADO):
-            sx = -1 if x == CORTE_X else 1
-            sy = -1 if y == CORTE_Y else 1
-            raya(d, x + sx * sep, y, x + sx * (sep + largo), y)
-            raya(d, x, y + sy * sep, x, y + sy * (sep + largo))
-
-    d.text((mm(CORTE_X), mm(8)), "Derriba al escuadrón · fondo de cielo", font=fuente(5, True), fill="black")
-    d.text((mm(CORTE_X), mm(14.5)), f"Lámina de {LADO:g} × {LADO:g} mm · corta por las marcas", font=fuente(3.4), fill=GRIS)
-
-    y = CORTE_Y + LADO + SANGRADO + 12
-    textos = [
-        ("Imprime a TAMAÑO REAL (100 %).", True),
-        ("Desactiva «Ajustar a la página» o «Reducir»; si no, la lámina no saldrá de 139 mm.", False),
-        ("Comprueba la escala con la barra: tiene que medir 100 mm.", False),
-        ("Lleva 3 mm de sangrado: corta por las marcas y el azul llega hasta el borde.", False),
-        ("Va detrás de la lámina, sobre todo de la versión mínima: el cielo se ve por los huecos.", False),
-        ("Papel o cartulina de 120-200 g/m², mate, para que no se ondule ni brille.", False),
-    ]
-    for t, negrita in textos:
-        d.text((mm(CORTE_X), mm(y)), t, font=fuente(3.6 if negrita else 3.2, negrita), fill="black" if negrita else GRIS)
-        y += 6.2
-    barra_escala(d, CORTE_X, y + 5)
-    return pag
-
-
-def hoja_dos(fondo, esquina):
-    """Dos fondos por A4, uno encima del otro y pegados: el corte del medio sirve para los dos.
-
-    Solo hay sangrado por fuera. Las instrucciones y la barra van giradas en los márgenes de los lados.
-    """
-    pag, d = pagina()
-    arriba = (A4[1] - 2 * LADO) / 2
-    abajo = arriba + 2 * LADO
-    x0 = int(round(mm(CORTE_X + esquina[0])))
-    y0 = int(round(mm(arriba + esquina[1])))
-    junta = int(round(mm(arriba + LADO)))
-    s = int(round(mm(-esquina[1])))
-    pag.paste(fondo.crop((0, 0, fondo.width, junta - y0)), (x0, y0))
-    pag.paste(fondo.crop((0, s, fondo.width, fondo.height)), (x0, junta))
-
-    # cortes horizontales: marcas en los márgenes de los lados
-    sep, largo = SANGRADO + 1.5, 6.0
-    for y in (arriba, arriba + LADO, abajo):
-        raya(d, CORTE_X - sep, y, CORTE_X - sep - largo, y)
-        raya(d, CORTE_X + LADO + sep, y, CORTE_X + LADO + sep + largo, y)
-    # cortes verticales: arriba y abajo no queda margen, la marca se mete en el sangrado (que se tira)
-    for x in (CORTE_X, CORTE_X + LADO):
-        raya(d, x, arriba - SANGRADO - 3, x, arriba - 0.8)
-        raya(d, x, abajo + 0.8, x, abajo + SANGRADO + 3)
-
-    izq = [
-        ("Imprime a TAMAÑO REAL (100 %), sin «Ajustar a la página».", 3.4, True, (0, 0, 0)),
-        ("Comprueba la escala: la barra de la derecha tiene que medir 100 mm.", 3.1, False, GRIS),
-        (f"Corta por las marcas: salen dos fondos de {LADO:g} × {LADO:g} mm (mejor en cartulina mate).", 3.1, False, GRIS),
-    ]
-    for i, (t, tam, negrita, color) in enumerate(izq):
-        texto_girado(pag, 8 + 5.5 * i, abajo - 8, t, tam, negrita, color)
-    texto_girado(pag, 196, abajo - 8, "Derriba al escuadrón · fondo de cielo · 2 por hoja", 3.4, True)
-    barra_escala(d, CORTE_X + LADO + SANGRADO + 8.5, arriba + 115, vertical=True)
-    return pag
-
-
 # ---------------- vista con la lámina mínima ----------------
 def svg_scad(modulo):
     """Saca de OpenSCAD el 2D de la versión mínima: lista de contornos en mm (origen arriba a la izquierda)."""
@@ -352,10 +231,10 @@ def main():
     fondo, esquina = dibujo()
     fondo.save(os.path.join(OUT, "fondo-cielo-600ppp.png" if PPP == 600 else f"fondo-cielo-{PPP}ppp.png"),
                dpi=(PPP, PPP), optimize=True)
-    hoja(fondo, esquina).save(os.path.join(OUT, "fondo-cielo-A4.pdf"), resolution=PPP, quality=94,
-                              title="Derriba al escuadrón - fondo de cielo 139 mm")
-    hoja_dos(fondo, esquina).save(os.path.join(OUT, "fondo-cielo-A4-dos.pdf"), resolution=PPP, quality=94,
-                                  title="Derriba al escuadrón - dos fondos de cielo 139 mm")
+    hoja_a4.una(fondo, PPP, LADO, SANGRADO).guarda(os.path.join(OUT, "fondo-cielo-A4.pdf"),
+                                                   "Derriba al escuadrón - fondo de cielo 139 mm")
+    hoja_a4.dos(fondo, PPP, LADO, SANGRADO).guarda(os.path.join(OUT, "fondo-cielo-A4-dos.pdf"),
+                                                   "Derriba al escuadrón - dos fondos de cielo 139 mm")
     v = vista(fondo, esquina)
     if v is not None:
         v.save(os.path.join(OUT, "vista-con-lamina-minima.png"), optimize=True)

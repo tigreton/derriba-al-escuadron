@@ -3,12 +3,16 @@
 Todo se define en milímetros (origen abajo a la izquierda, y hacia arriba, como en B-escuadron.scad),
 así que la misma composición sale igual a cualquier resolución. Las nubes están colocadas en el
 cielo que deja libre la versión mínima; para moverlas, edita la lista NUBES.
-Uso: python fondo_cielo_ruido.py <px_por_mm> <salida.png>
+Uso: python fondo_cielo_ruido.py <px_por_mm> <salida.png> [hoja-dos.pdf]
+     Además de la imagen saca un PDF A4 con dos fondos para imprimir juntos (por defecto
+     fondo-cielo-A4-imprimir-dos.pdf, junto a la imagen).
      600 ppp = 23.62204724 px/mm; la imagen sale con 3 mm de sangrado por cada lado (145 x 145 mm).
 """
-import sys
+import os, sys
 import numpy as np
 from PIL import Image
+
+import hoja_a4
 
 LADO = 139.0          # mm, corte final
 SANGRADO = 3.0        # mm de sangrado a cada lado
@@ -239,5 +243,9 @@ if __name__ == '__main__':
     ppmm = float(sys.argv[1]); out = sys.argv[2]
     arr = pintar(ppmm)
     dpi = ppmm * 25.4
-    Image.fromarray(arr).save(out, dpi=(dpi, dpi))
+    img = Image.fromarray(arr)
+    img.save(out, dpi=(dpi, dpi))
     print(out, arr.shape, f'{dpi:.0f} ppp')
+    pdf = sys.argv[3] if len(sys.argv) > 3 else os.path.join(os.path.dirname(out), 'fondo-cielo-A4-imprimir-dos.pdf')
+    hoja_a4.dos(img, dpi, LADO, SANGRADO).guarda(pdf, 'Derriba al escuadrón - dos fondos de cielo 139 mm')
+    print(pdf)
