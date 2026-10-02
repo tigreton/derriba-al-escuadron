@@ -7,10 +7,30 @@
 // Pieza a generar
 parte = "completa"; // [completa:Lámina completa (1 cuerpo), base:Multimaterial - cielo, relieve:Multimaterial - relieve, dianas:Multimaterial - dianas y pestañas, probeta:Probeta de pestañas, vista:Vista en color]
 
+/* [Versión] */
+// Express: lámina lisa y fina, sin relieve. Mínima: al revés, solo se imprimen los aviones y el cielo queda vacío
+version = "normal"; // [normal:Normal (con relieve), express:Express (liviana y rápida), minima:Mínima (solo aviones, cielo sin imprimir)]
+// Grosor de las versiones express y mínima (mínimo razonable: pestaña + 0,6 mm)
+grosor_express = 1.2;
+// Opciones de la versión normal (express y mínima las apagan todas)
+mostrar_numeros = true;
+mostrar_rebordes = true;
+mostrar_marco = true;
+mostrar_nubes = true;
+mostrar_anillos = true;
+
+/* [Versión mínima] */
+// Marco exterior que sujeta todo y encaja en el portadianas
+marco_minima = 4;
+// Ancho de los soportes que unen los aviones al marco
+soporte_ancho = 3;
+// Material de avión que queda como mínimo alrededor del hueco de la diana
+pared_min = 0.8;
+
 /* [Lámina] */
 lado = 139;
 radio_esquina = 4;
-// Grosor de la lámina (cielo y dianas), sin contar el relieve
+// Grosor de la lámina (cielo y dianas) en la versión normal, sin contar el relieve
 grosor_lamina = 2.0;
 // Marco, rebordes de los huecos y puntos
 relieve_alto = 0.8;
@@ -46,6 +66,18 @@ probeta_holgura = 2.5;
 $fn = 48;
 FUENTE = "Liberation Sans:style=Bold";
 
+MINIMA = version == "minima";
+FINA = version == "express" || MINIMA;
+GROSOR = FINA ? grosor_express : grosor_lamina;
+CON_NUMEROS = !FINA && mostrar_numeros;
+CON_REBORDES = !FINA && mostrar_rebordes;
+CON_MARCO = !FINA && mostrar_marco;
+CON_NUBES = !FINA && mostrar_nubes;
+CON_ANILLOS = !FINA && mostrar_anillos;
+CON_RELIEVE_ALTO = CON_NUMEROS || CON_REBORDES || CON_MARCO;
+CON_RELIEVE = CON_RELIEVE_ALTO || CON_NUBES || CON_ANILLOS;
+ALTURA = GROSOR + (CON_RELIEVE_ALTO ? relieve_alto : CON_RELIEVE ? relieve_bajo : 0);
+
 // [nombre, x, y, giro, Ø diana, puntos, [x, y] de la insignia,
 //  [envergadura, morro, cola, fuselaje, cuerda raíz, cuerda punta, flecha, env. cola, cuerda cola, flecha cola]]
 AVIONES = [
@@ -55,12 +87,26 @@ AVIONES = [
     ["Reactor delta",  28,  27, -30,  7, 4, [ 12,  47], [34, 15, 13,  6, 24, 2.5, 21.5,  0, 0, 0  ]],
     ["Avioneta",       66,  21,  20,  6, 5, [ 88,  13], [30,  9, 14,  6,  8, 5,   0.5,  12, 4, 0.5]],
 ];
+// Versión mínima: soportes [punto en el avión, punto en el borde]; se recortan al tamaño de la lámina
+SOPORTES = [
+    [[ 25.7, 106.7], [  0, 106.7]],   // bombardero, ala izquierda
+    [[ 29.6,  64.6], [  0,  64.6]],   // bombardero, cola
+    [[ 71.7,  60.7], [ 80.5,  44  ]], // bombardero - transporte
+    [[131.5,  44  ], [139,  44  ]],   // transporte, ala derecha
+    [[106,    21  ], [106,   0  ]],   // transporte, cola
+    [[101.5, 128.5], [101.5, 139]],   // caza, ala izquierda
+    [[123,   109  ], [139, 109  ]],   // caza, morro
+    [[ 10.1,  24.9], [  0,  24.9]],   // delta, ala izquierda
+    [[ 35.2,  10.4], [ 35.2,  0 ]],   // delta, ala derecha
+    [[ 70.1,   9.7], [ 70.1,  0 ]],   // avioneta, cola
+    [[ 77.4,  26.2], [ 80.5,  44]],   // avioneta - transporte
+];
 // [x, y, escala]
 NUBES = [[18, 123, 0.8], [60, 126, 0.8], [124, 77, 0.7], [86, 67, 0.7], [106, 9, 0.8], [12, 69, 0.6]];
 
-if (grosor_lamina + relieve_alto > 3) echo(str("AVISO: la lámina mide ", grosor_lamina + relieve_alto, " mm, pasa de 3 mm"));
+if (ALTURA > 3) echo(str("AVISO: la lámina mide ", ALTURA, " mm, pasa de 3 mm"));
 assert(relieve_bajo <= relieve_alto, "relieve_bajo debe ser <= relieve_alto");
-assert(pestana_grosor < grosor_lamina, "La pestaña debe ser más fina que la lámina");
+assert(pestana_grosor < GROSOR, "La pestaña debe ser más fina que la lámina");
 
 // ---------------- geometría ----------------
 function bez2(p0, p1, p2, n = 8) = [for (i = [0:n]) let(t = i / n) (1 - t) * (1 - t) * p0 + 2 * (1 - t) * t * p1 + t * t * p2];
@@ -102,7 +148,7 @@ module discos() for (a = AVIONES) en_avion(a) circle(r = radio(a), $fn = 72);
 function largo_libre(a) = min(pestana_largo, norm(punto_cercano(silueta(a[7]))) - radio(a));
 
 // Pestaña fina: va del centro de la diana hasta dentro de la lámina (lo que queda tapado no se ve)
-module pestanas() for (a = AVIONES) {
+module pestanas() if (MINIMA) pestanas_minima(); else for (a = AVIONES) {
     q = punto_cercano(silueta(a[7]));
     en_avion(a) rotate(atan2(q[1], q[0]))
         translate([0, -pestana_ancho / 2]) square([norm(q) + pestana_solape, pestana_ancho]);
@@ -117,7 +163,31 @@ module anclajes() for (a = AVIONES) {
             translate([desde, -anclaje_ancho / 2]) square([norm(q) - desde + pestana_solape, anclaje_ancho]);
 }
 
-module lamina_2d() union() { cielo(); anclajes(); }
+// Versión mínima: hueco alrededor de la diana dentro del avión macizo
+function hueco_min(a) = min(pestana_largo, norm(punto_cercano(silueta(a[7]))) - radio(a) - pared_min);
+
+module soportes() for (s = SOPORTES)
+    hull() { translate(s[0]) circle(d = soporte_ancho); translate(s[1]) circle(d = soporte_ancho); }
+
+module estructura_minima() difference() {
+    intersection() {
+        placa();
+        union() {
+            difference() { placa(); offset(delta = -marco_minima) placa(); }
+            for (a = AVIONES) en_avion(a) polygon(silueta(a[7]));
+            soportes();
+        }
+    }
+    for (a = AVIONES) en_avion(a) circle(r = radio(a) + hueco_min(a), $fn = 72);
+}
+
+// Pestaña de la versión mínima: hacia la cola, cruzando el hueco hasta el fuselaje
+module pestanas_minima() for (a = AVIONES) {
+    largo = radio(a) + hueco_min(a) + pestana_solape;
+    en_avion(a) translate([-pestana_ancho / 2, -largo]) square([pestana_ancho, largo]);
+}
+
+module lamina_2d() if (MINIMA) estructura_minima(); else union() { cielo(); anclajes(); }
 
 module anillos() for (a = AVIONES) {
     r = radio(a);
@@ -136,39 +206,47 @@ module nube(n) translate([n[0], n[1]]) scale(n[2]) {
     hull() { translate([-8, -2]) circle(r = 2); translate([10, -2]) circle(r = 2); }
 }
 
-module insignias() for (a = AVIONES) translate(a[6]) circle(r = 3.6);
+module insignias() if (CON_NUMEROS) for (a = AVIONES) translate(a[6]) circle(r = 3.6);
 // Los números se graban atravesando el relieve: salen del color de la base
-module numeros() for (a = AVIONES) translate(a[6])
+module numeros() if (CON_NUMEROS) for (a = AVIONES) translate(a[6])
     text(str(a[5]), size = 4.2, font = FUENTE, halign = "center", valign = "center");
 
 module relieve_bajo_2d() union() {
     difference() {
-        intersection() { cielo(); union() { for (n = NUBES) nube(n); bordes(); marco(); insignias(); } }
+        intersection() {
+            cielo();
+            union() {
+                if (CON_NUBES) for (n = NUBES) nube(n);
+                if (CON_REBORDES) bordes();
+                if (CON_MARCO) marco();
+                insignias();
+            }
+        }
         numeros();
     }
-    anillos();
+    if (CON_ANILLOS) anillos();
 }
 module relieve_alto_2d() difference() {
-    intersection() { cielo(); union() { bordes(); marco(); insignias(); } }
+    intersection() { cielo(); union() { if (CON_REBORDES) bordes(); if (CON_MARCO) marco(); insignias(); } }
     numeros();
 }
 
 // ---------------- piezas 3D ----------------
-module relieve_3d() translate([0, 0, grosor_lamina]) {
+module relieve_3d() if (CON_RELIEVE) translate([0, 0, GROSOR]) {
     linear_extrude(relieve_bajo) relieve_bajo_2d();
-    if (relieve_alto > relieve_bajo)
+    if (CON_RELIEVE_ALTO && relieve_alto > relieve_bajo)
         translate([0, 0, relieve_bajo]) linear_extrude(relieve_alto - relieve_bajo) relieve_alto_2d();
 }
 
 module completa() union() {
     linear_extrude(pestana_grosor) union() { lamina_2d(); discos(); pestanas(); }
-    translate([0, 0, pestana_grosor]) linear_extrude(grosor_lamina - pestana_grosor) union() { lamina_2d(); discos(); }
+    translate([0, 0, pestana_grosor]) linear_extrude(GROSOR - pestana_grosor) union() { lamina_2d(); discos(); }
     relieve_3d();
 }
 
-module base_mm() linear_extrude(grosor_lamina) lamina_2d();
+module base_mm() linear_extrude(GROSOR) lamina_2d();
 module dianas_mm() union() {
-    linear_extrude(grosor_lamina) discos();
+    linear_extrude(GROSOR) discos();
     linear_extrude(pestana_grosor) difference() { pestanas(); lamina_2d(); }
 }
 
@@ -180,31 +258,42 @@ module probeta() {
     alto = d_hueco + 16;
     cy = alto - (d_hueco / 2 + 4);
     desde = probeta_diana / 2 + min(pestana_largo, probeta_holgura);
-    linear_extrude(grosor_lamina) difference() {
-        offset(r = 3) offset(delta = -3) square([ancho, alto]);
-        for (i = [0:n - 1]) translate([2 + paso * (i + 0.5), cy]) difference() {
-            circle(d = d_hueco, $fn = 72);
-            translate([-anclaje_ancho / 2, -d_hueco]) square([anclaje_ancho, d_hueco - desde]);
+    // Etiquetas en relieve; en la versión sin relieve se graban para que la tira quede plana
+    module etiquetas() for (i = [0:n - 1]) translate([2 + paso * (i + 0.5), 5])
+        text(un_decimal(probeta_grosores[i]), size = 4, font = FUENTE, halign = "center", valign = "center");
+    grabado = min(0.6, GROSOR / 2);
+    difference() {
+        linear_extrude(GROSOR) difference() {
+            offset(r = 3) offset(delta = -3) square([ancho, alto]);
+            for (i = [0:n - 1]) translate([2 + paso * (i + 0.5), cy]) difference() {
+                circle(d = d_hueco, $fn = 72);
+                translate([-anclaje_ancho / 2, -d_hueco]) square([anclaje_ancho, d_hueco - desde]);
+            }
         }
+        if (!CON_RELIEVE) translate([0, 0, GROSOR - grabado]) linear_extrude(grabado + 0.01) etiquetas();
     }
     for (i = [0:n - 1]) translate([2 + paso * (i + 0.5), cy]) {
-        linear_extrude(grosor_lamina) circle(d = probeta_diana, $fn = 72);
+        linear_extrude(GROSOR) circle(d = probeta_diana, $fn = 72);
         linear_extrude(probeta_grosores[i])
             translate([-pestana_ancho / 2, -(d_hueco / 2 + pestana_solape)])
                 square([pestana_ancho, d_hueco / 2 + pestana_solape]);
-        translate([0, 0, grosor_lamina]) linear_extrude(relieve_bajo) difference() {
+        if (CON_ANILLOS) translate([0, 0, GROSOR]) linear_extrude(relieve_bajo) difference() {
             circle(r = probeta_diana * 0.35 + 0.25, $fn = 72);
             circle(r = probeta_diana * 0.35 - 0.25, $fn = 72);
         }
     }
-    translate([0, 0, grosor_lamina]) linear_extrude(relieve_alto)
-        for (i = [0:n - 1]) translate([2 + paso * (i + 0.5), 5])
-            text(un_decimal(probeta_grosores[i]), size = 4, font = FUENTE, halign = "center", valign = "center");
+    if (CON_RELIEVE) translate([0, 0, GROSOR]) linear_extrude(relieve_alto) etiquetas();
 }
 
 // ---------------- comprobaciones ----------------
 function r2(x) = round(x * 100) / 100;
-for (a = AVIONES) {
+if (MINIMA) for (a = AVIONES) {
+    hm = hueco_min(a);
+    echo(str(a[0], ": diana Ø", r2(2 * radio(a)), " mm, hueco ", r2(hm), " mm, pared de avión ",
+             r2(norm(punto_cercano(silueta(a[7]))) - radio(a) - hm), " mm",
+             hm < holgura_min ? "  <-- HUECO DEMASIADO JUSTO" : ""));
+}
+if (!MINIMA) for (a = AVIONES) {
     h = norm(punto_cercano(silueta(a[7]))) - radio(a);
     echo(str(a[0], ": diana Ø", r2(2 * radio(a)), " mm, hueco ", r2(h), " mm, pestaña libre ", r2(largo_libre(a)),
              " mm, saliente ", r2(h - largo_libre(a)), " mm",
@@ -212,7 +301,9 @@ for (a = AVIONES) {
              pestana_largo > h ? "  <-- el hueco no da para el largo pedido" : ""));
 }
 echo(str("Pestaña: ", pestana_grosor, " x ", pestana_ancho, " mm, largo libre ", pestana_largo, " mm"));
-echo(str("Altura total: ", grosor_lamina + relieve_alto, " mm"));
+echo(str("Versión ", version, ": lámina ", GROSOR, " mm, altura total ", ALTURA, " mm",
+         CON_RELIEVE ? "" : " (sin relieve)"));
+if (parte == "relieve" && !CON_RELIEVE) echo("AVISO: esta versión no tiene relieve, la pieza sale vacía");
 
 // ---------------- salida ----------------
 if (parte == "completa") completa();
