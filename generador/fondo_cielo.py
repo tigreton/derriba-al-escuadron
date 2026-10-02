@@ -1,0 +1,366 @@
+"""Fondo de cielo azul con nubes para imprimir en láser a color (139 x 139 mm).
+
+Va detrás de la lámina impresa en 3D: en la versión mínima el cielo queda vacío y se ve el papel.
+Las nubes caen en los huecos de esa versión. Saca:
+  - fondo-cielo-A4.pdf: hoja A4 a tamaño real, con 3 mm de sangrado, marcas de corte y barra de escala
+  - fondo-cielo-A4-dos.pdf: dos fondos por A4 para gastar menos papel (sangrado solo por fuera)
+  - fondo-cielo-600ppp.png: solo el dibujo con sangrado (145 x 145 mm a 600 ppp)
+  - vista-con-lamina-minima.png: cómo queda detrás de la lámina mínima (necesita OpenSCAD)
+Uso:  python fondo_cielo.py [ppp]
+"""
+import math, os, random, re, subprocess, sys, tempfile
+import numpy as np
+from PIL import Image, ImageDraw, ImageFont
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUT = os.path.join(ROOT, "aviones", "fondo-cielo")
+SCAD = os.path.join(ROOT, "aviones", "B-escuadron.scad")
+OPENSCAD = os.environ.get("OPENSCAD", r"C:\Program Files\OpenSCAD\openscad.com")
+PPP = int(sys.argv[1]) if len(sys.argv) > 1 else 600
+
+LADO, SANGRADO = 139.0, 3.0
+A4 = (210.0, 297.0)
+CORTE_X, CORTE_Y = (A4[0] - LADO) / 2, 32.0  # esquina del corte en la hoja
+
+CIELO_ARRIBA, CIELO_ABAJO = (52, 140, 222), (190, 224, 249)
+SOL = (0.0, 0.0)  # brillo suave en la esquina de arriba a la izquierda
+SOMBRA_NUBE = (160, 186, 222)
+LUZ = np.array([-0.45, -0.75, 0.55]) / np.linalg.norm([-0.45, -0.75, 0.55])
+
+# Jirones lejanos: [x, y, medio largo, grueso, opacidad, semilla]
+NEBLINA = [[98, 111, 26, 2.6, 0.55, 1], [22, 120, 16, 2.2, 0.5, 2], [120, 88, 14, 2.0, 0.45, 3], [55, 70, 11, 1.8, 0.4, 4]]
+# [x, y, ancho, semilla] en mm, origen arriba a la izquierda del corte, vista desde el tirador
+NUBES = [
+    [42, 19, 36, 3], [72, 31, 26, 7], [112, 63, 32, 11], [84, 75, 18, 5],
+    [29, 92, 32, 2], [57, 101, 20, 8], [125, 123, 15, 4], [11, 50, 12, 6],
+    [125, 12, 13, 9], [47, 128, 13, 1],
+]
+
+
+def mm(v):
+    return v * PPP / 25.4
+
+
+def mezcla(a, b, t):
+    a, b = np.asarray(a, float), np.asarray(b, float)
+    return a + (b - a) * t[..., None]
+
+
+def suave(e0, e1, x):
+    t = np.clip((x - e0) / (e1 - e0), 0, 1)
+    return t * t * (3 - 2 * t)
+
+
+# ---------------- nubes ----------------
+def bolas(cx, cy, w, semilla):
+    """Cúmulo: una fila de bolas en la base y cúpulas más grandes encima. Devuelve (bolas, y de la base)."""
+    rnd = random.Random(semilla)
+    base = cy + 0.2 * w
+    nb = rnd.choice((3, 4)) if w < 20 else rnd.choice((4, 5))
+    rb = w / (2 * nb) * 1.35
+    out = []
+    for i in range(nb):
+        x = cx - w / 2 + rb + i * (w - 2 * rb) / (nb - 1) + rnd.uniform(-0.1, 0.1) * rb
+        r = rb * rnd.uniform(0.8, 1.15)
+        out.append((x, base - r * rnd.uniform(0.55, 0.8), r, 0.0))
+    # cúpulas: la más alta descentrada hacia un lado
+    nt = 2 if w < 22 else 3
+    lado = rnd.choice((-1, 1))
+    for j in range(nt):
+        t = (j + 0.5) / nt - 0.5
+        x = cx + t * w * 0.55 + rnd.uniform(-0.06, 0.06) * w
+        r = w * rnd.uniform(0.16, 0.21) * (1.25 - 0.5 * abs(t + lado * 0.15))
+        out.append((x, base - w * 0.15 - r * rnd.uniform(0.4, 0.7), r, -0.2 * r))
+    # algún moño pequeño encima
+    for _ in range(rnd.choice((1, 2))):
+        bx, by, br, _z = rnd.choice(out[nb:])
+        a = math.radians(rnd.uniform(-150, -30))
+        r = br * rnd.uniform(0.4, 0.55)
+        out.append((bx + math.cos(a) * br * 0.7, by + math.sin(a) * br * 0.7, r, -0.3 * br))
+    return out, base
+
+
+def pinta_nube(img, x0, y0, nube):
+    """Pinta una nube sobre img (float, píxeles), cuyo píxel (0, 0) está en (x0, y0) mm."""
+    cx, cy, w, semilla = nube
+    bs, base = bolas(cx, cy, w, semilla)
+    xa = min(b[0] - b[2] for b in bs) - 1
+    xb = max(b[0] + b[2] for b in bs) + 1
+    ya = min(b[1] - b[2] for b in bs) - 1
+    i0, i1 = int(mm(xa - x0)), int(math.ceil(mm(xb - x0)))
+    j0, j1 = int(mm(ya - y0)), int(math.ceil(mm(base + 1 - y0)))
+    i0, j0 = max(i0, 0), max(j0, 0)
+    i1, j1 = min(i1, img.shape[1]), min(j1, img.shape[0])
+    if i1 <= i0 or j1 <= j0:
+        return
+    px = x0 + (np.arange(i0, i1) + 0.5) * 25.4 / PPP
+    py = y0 + (np.arange(j0, j1) + 0.5) * 25.4 / PPP
+    X, Y = np.meshgrid(px, py)
+
+    # silueta: unión suave de las bolas, con la base plana un poco redondeada
+    k = 0.018 * w
+    dist = None
+    for bx, by, r, _z in bs:
+        d = np.hypot(X - bx, Y - by) - r
+        if dist is None:
+            dist = d
+        else:
+            h = np.clip(0.5 + 0.5 * (d - dist) / k, 0, 1)
+            dist = d + (dist - d) * h - k * h * (1 - h)
+    kb = 0.03 * w
+    yb = Y - base
+    h = np.clip(0.5 - 0.5 * (yb - dist) / kb, 0, 1)
+    dist = yb + (dist - yb) * h + kb * h * (1 - h)
+
+    # relieve: cada bola es media esfera; las normales se mezclan sin costuras
+    tau = 0.03 * w
+    hs = []
+    for bx, by, r, z in bs:
+        dx, dy = X - bx, Y - by
+        dd = np.minimum(dx * dx + dy * dy, r * r)
+        hs.append((np.sqrt(r * r - dd) + z, dx / r, dy / r, np.sqrt(r * r - dd) / r))
+    alto = np.max([q[0] for q in hs], axis=0)
+    peso_total = np.zeros(X.shape); nx = np.zeros(X.shape); ny = np.zeros(X.shape); nz = np.zeros(X.shape)
+    segundo = np.full(X.shape, -1e9)
+    for hz, ax, ay, az in hs:
+        p = np.exp((hz - alto) / tau)
+        peso_total += p; nx += p * ax; ny += p * ay; nz += p * az
+        segundo = np.where(hz < alto - 1e-9, np.maximum(segundo, hz), segundo)
+    n = np.sqrt(nx * nx + ny * ny + nz * nz) + 1e-9
+    luz = np.clip((nx * LUZ[0] + ny * LUZ[1] + nz * LUZ[2]) / n, 0, 1)
+    tono = 0.3 + 0.75 * luz
+    # pliegues entre bolas algo más oscuros
+    tono *= 1 - 0.22 * np.exp(-(alto - segundo) / (0.04 * w))
+    # tripa de la nube en sombra
+    tono *= 1 - 0.35 * suave(base - 0.3 * w, base, Y)
+    tono = np.clip(tono, 0, 1) ** 1.5
+    color = mezcla(SOMBRA_NUBE, (255, 255, 255), tono)
+    # cuanto más abajo, más se tiñe del cielo (lejanía)
+    lejos = 0.2 * np.clip(cy / LADO, 0, 1)
+    color = mezcla(color, cielo_color(X, Y), np.full(X.shape, lejos))
+
+    alfa = np.clip(0.5 - mm(dist), 0, 1)[..., None]
+    trozo = img[j0:j1, i0:i1]
+    trozo[:] = trozo * (1 - alfa) + color * alfa
+
+
+def pinta_neblina(img, x0, y0, banda):
+    """Jirón de nube lejana: varias manchas alargadas, suaves y transparentes."""
+    cx, cy, largo, grueso, fuerza, semilla = banda
+    rnd = random.Random(semilla)
+    p = x0 + (np.arange(img.shape[1]) + 0.5) * 25.4 / PPP
+    q = y0 + (np.arange(img.shape[0]) + 0.5) * 25.4 / PPP
+    j0, j1 = np.searchsorted(q, [cy - 4 * grueso, cy + 3 * grueso])
+    i0, i1 = np.searchsorted(p, [cx - 1.3 * largo, cx + 1.3 * largo])
+    X, Y = np.meshgrid(p[i0:i1], q[j0:j1])
+    a = np.zeros(X.shape)
+    for _ in range(6):
+        mx = cx + rnd.uniform(-0.75, 0.75) * largo
+        my = cy + rnd.uniform(-0.6, 0.3) * grueso
+        sx = largo * rnd.uniform(0.25, 0.45)
+        sy = grueso * rnd.uniform(0.6, 1.0)
+        a = np.maximum(a, rnd.uniform(0.6, 1) * np.exp(-((X - mx) / sx) ** 2 - ((Y - my) / sy) ** 2))
+    trozo = img[j0:j1, i0:i1]
+    trozo[:] = mezcla(trozo, (248, 251, 255), np.clip(fuerza * a, 0, 1))
+
+
+def cielo_color(X, Y):
+    t = suave(-SANGRADO, LADO + SANGRADO, Y) * 0.85 + 0.15 * np.clip(Y / LADO, 0, 1)
+    c = mezcla(CIELO_ARRIBA, CIELO_ABAJO, t)
+    brillo = 0.35 * np.exp(-((X - SOL[0]) ** 2 + (Y - SOL[1]) ** 2) / (2 * 38.0 ** 2))
+    return mezcla(c, (246, 251, 255), brillo)
+
+
+def dibujo():
+    """El fondo con sangrado: devuelve (imagen PIL, mm de su esquina)."""
+    x0 = y0 = -SANGRADO
+    n = int(round(mm(LADO + 2 * SANGRADO)))
+    p = x0 + (np.arange(n) + 0.5) * 25.4 / PPP
+    X, Y = np.meshgrid(p, p)
+    img = cielo_color(X, Y)
+    for banda in NEBLINA:
+        pinta_neblina(img, x0, y0, banda)
+    for nube in NUBES:
+        pinta_nube(img, x0, y0, nube)
+    return Image.fromarray(np.clip(img + 0.5, 0, 255).astype(np.uint8)), (x0, y0)
+
+
+# ---------------- hoja A4 ----------------
+GRIS = (90, 90, 90)
+
+
+def fuente(tam_mm, negrita=False):
+    nombre = "arialbd.ttf" if negrita else "arial.ttf"
+    for ruta in (os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts", nombre), nombre,
+                 "DejaVuSans-Bold.ttf" if negrita else "DejaVuSans.ttf"):
+        try:
+            return ImageFont.truetype(ruta, int(round(mm(tam_mm))))
+        except OSError:
+            pass
+    return ImageFont.load_default()
+
+
+def pagina():
+    pag = Image.new("RGB", (int(round(mm(A4[0]))), int(round(mm(A4[1])))), "white")
+    return pag, ImageDraw.Draw(pag)
+
+
+def raya(d, xa, ya, xb, yb):
+    d.line([(mm(xa), mm(ya)), (mm(xb), mm(yb))], fill="black", width=max(1, int(round(mm(0.25)))))
+
+
+def barra_escala(d, x, y, vertical=False):
+    """Barra de 100 mm en tramos de 10. (x, y) en mm es el cero; la vertical sube desde ahí."""
+    g = max(1, int(round(mm(0.25))))
+    for i in range(10):
+        if vertical:
+            caja = [mm(x), mm(y - i * 10 - 10), mm(x + 2.5), mm(y - i * 10)]
+        else:
+            caja = [mm(x + i * 10), mm(y), mm(x + i * 10 + 10), mm(y + 2.5)]
+        d.rectangle(caja, fill="black" if i % 2 == 0 else "white", outline="black", width=g)
+    for i in (0, 5, 10):
+        etiqueta = "100 mm" if i == 10 else str(i * 10)
+        if vertical:
+            d.text((mm(x + 3.8), mm(y - i * 10)), etiqueta, font=fuente(2.8), fill=GRIS, anchor="lm")
+        else:
+            d.text((mm(x + i * 10), mm(y + 3.8)), etiqueta, font=fuente(2.8), fill=GRIS, anchor="ma" if i else "la")
+
+
+def texto_girado(pag, x, y, texto, tam, negrita=False, color=(0, 0, 0)):
+    """Texto que se lee de abajo arriba. (x, y) en mm es la esquina de abajo a la izquierda."""
+    f = fuente(tam, negrita)
+    _, _, ancho, alto = f.getbbox(texto)
+    m = Image.new("L", (ancho, alto), 0)
+    ImageDraw.Draw(m).text((0, 0), texto, font=f, fill=255)
+    m = m.rotate(90, expand=True)
+    pag.paste(color, (int(round(mm(x))), int(round(mm(y))) - m.height), m)
+
+
+def hoja(fondo, esquina):
+    """Un fondo por A4, con sangrado en los cuatro lados, marcas de corte e instrucciones."""
+    pag, d = pagina()
+    pag.paste(fondo, (int(round(mm(CORTE_X + esquina[0]))), int(round(mm(CORTE_Y + esquina[1])))))
+
+    # marcas de corte: fuera del sangrado, alineadas con el borde de 139 mm
+    sep, largo = SANGRADO + 1.5, 6.0
+    for x in (CORTE_X, CORTE_X + LADO):
+        for y in (CORTE_Y, CORTE_Y + LADO):
+            sx = -1 if x == CORTE_X else 1
+            sy = -1 if y == CORTE_Y else 1
+            raya(d, x + sx * sep, y, x + sx * (sep + largo), y)
+            raya(d, x, y + sy * sep, x, y + sy * (sep + largo))
+
+    d.text((mm(CORTE_X), mm(8)), "Derriba al escuadrón · fondo de cielo", font=fuente(5, True), fill="black")
+    d.text((mm(CORTE_X), mm(14.5)), f"Lámina de {LADO:g} × {LADO:g} mm · corta por las marcas", font=fuente(3.4), fill=GRIS)
+
+    y = CORTE_Y + LADO + SANGRADO + 12
+    textos = [
+        ("Imprime a TAMAÑO REAL (100 %).", True),
+        ("Desactiva «Ajustar a la página» o «Reducir»; si no, la lámina no saldrá de 139 mm.", False),
+        ("Comprueba la escala con la barra: tiene que medir 100 mm.", False),
+        ("Lleva 3 mm de sangrado: corta por las marcas y el azul llega hasta el borde.", False),
+        ("Va detrás de la lámina, sobre todo de la versión mínima: el cielo se ve por los huecos.", False),
+        ("Papel o cartulina de 120-200 g/m², mate, para que no se ondule ni brille.", False),
+    ]
+    for t, negrita in textos:
+        d.text((mm(CORTE_X), mm(y)), t, font=fuente(3.6 if negrita else 3.2, negrita), fill="black" if negrita else GRIS)
+        y += 6.2
+    barra_escala(d, CORTE_X, y + 5)
+    return pag
+
+
+def hoja_dos(fondo, esquina):
+    """Dos fondos por A4, uno encima del otro y pegados: el corte del medio sirve para los dos.
+
+    Solo hay sangrado por fuera. Las instrucciones y la barra van giradas en los márgenes de los lados.
+    """
+    pag, d = pagina()
+    arriba = (A4[1] - 2 * LADO) / 2
+    abajo = arriba + 2 * LADO
+    x0 = int(round(mm(CORTE_X + esquina[0])))
+    y0 = int(round(mm(arriba + esquina[1])))
+    junta = int(round(mm(arriba + LADO)))
+    s = int(round(mm(-esquina[1])))
+    pag.paste(fondo.crop((0, 0, fondo.width, junta - y0)), (x0, y0))
+    pag.paste(fondo.crop((0, s, fondo.width, fondo.height)), (x0, junta))
+
+    # cortes horizontales: marcas en los márgenes de los lados
+    sep, largo = SANGRADO + 1.5, 6.0
+    for y in (arriba, arriba + LADO, abajo):
+        raya(d, CORTE_X - sep, y, CORTE_X - sep - largo, y)
+        raya(d, CORTE_X + LADO + sep, y, CORTE_X + LADO + sep + largo, y)
+    # cortes verticales: arriba y abajo no queda margen, la marca se mete en el sangrado (que se tira)
+    for x in (CORTE_X, CORTE_X + LADO):
+        raya(d, x, arriba - SANGRADO - 3, x, arriba - 0.8)
+        raya(d, x, abajo + 0.8, x, abajo + SANGRADO + 3)
+
+    izq = [
+        ("Imprime a TAMAÑO REAL (100 %), sin «Ajustar a la página».", 3.4, True, (0, 0, 0)),
+        ("Comprueba la escala: la barra de la derecha tiene que medir 100 mm.", 3.1, False, GRIS),
+        (f"Corta por las marcas: salen dos fondos de {LADO:g} × {LADO:g} mm (mejor en cartulina mate).", 3.1, False, GRIS),
+    ]
+    for i, (t, tam, negrita, color) in enumerate(izq):
+        texto_girado(pag, 8 + 5.5 * i, abajo - 8, t, tam, negrita, color)
+    texto_girado(pag, 196, abajo - 8, "Derriba al escuadrón · fondo de cielo · 2 por hoja", 3.4, True)
+    barra_escala(d, CORTE_X + LADO + SANGRADO + 8.5, arriba + 115, vertical=True)
+    return pag
+
+
+# ---------------- vista con la lámina mínima ----------------
+def svg_scad(modulo):
+    """Saca de OpenSCAD el 2D de la versión mínima: lista de contornos en mm (origen arriba a la izquierda)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        scad, svg = os.path.join(tmp, "v.scad"), os.path.join(tmp, "v.svg")
+        with open(scad, "w", encoding="utf-8") as fh:
+            fh.write(f'include <{SCAD.replace(os.sep, "/")}>\nparte = "nada";\nversion = "minima";\n{modulo}();\n')
+        subprocess.run([OPENSCAD, "-o", svg, scad], check=True, capture_output=True)
+        d = " ".join(re.findall(r'd="([^"]*)"', open(svg, encoding="utf-8").read(), re.S))
+    return [[(float(a), LADO + float(b)) for a, b in re.findall(r"(-?[\d.e+-]+),(-?[\d.e+-]+)", parte)]
+            for parte in d.split("M")[1:]]
+
+
+def mascara(contornos, tam, k, esquina):
+    acc = np.zeros((tam, tam), bool)
+    for pts in contornos:
+        m = Image.new("L", (tam, tam), 0)
+        ImageDraw.Draw(m).polygon([((x - esquina[0]) * k, (y - esquina[1]) * k) for x, y in pts], fill=255)
+        acc ^= np.array(m) > 127
+    return acc
+
+
+def vista(fondo, esquina):
+    try:
+        est, dis = svg_scad("lamina_2d"), svg_scad("discos")
+    except (OSError, subprocess.CalledProcessError) as e:
+        print("Sin OpenSCAD, no saco la vista con la lámina:", e)
+        return None
+    tam = 900
+    img = fondo.resize((tam, tam), Image.LANCZOS)
+    k = tam / (LADO + 2 * SANGRADO)
+    a = np.array(img).astype(float)
+    sombra = mascara([[(x + 0.8, y + 0.8) for x, y in c] for c in est], tam, k, esquina)
+    a[sombra] *= 0.7
+    a[mascara(est, tam, k, esquina)] = (88, 98, 110)
+    a[mascara(dis, tam, k, esquina)] = (226, 75, 74)
+    fuera = mascara([[(0, 0), (LADO, 0), (LADO, LADO), (0, LADO)]], tam, k, esquina)
+    a[~fuera] = (255, 255, 255)
+    return Image.fromarray(a.astype(np.uint8))
+
+
+def main():
+    os.makedirs(OUT, exist_ok=True)
+    fondo, esquina = dibujo()
+    fondo.save(os.path.join(OUT, "fondo-cielo-600ppp.png" if PPP == 600 else f"fondo-cielo-{PPP}ppp.png"),
+               dpi=(PPP, PPP), optimize=True)
+    hoja(fondo, esquina).save(os.path.join(OUT, "fondo-cielo-A4.pdf"), resolution=PPP, quality=94,
+                              title="Derriba al escuadrón - fondo de cielo 139 mm")
+    hoja_dos(fondo, esquina).save(os.path.join(OUT, "fondo-cielo-A4-dos.pdf"), resolution=PPP, quality=94,
+                                  title="Derriba al escuadrón - dos fondos de cielo 139 mm")
+    v = vista(fondo, esquina)
+    if v is not None:
+        v.save(os.path.join(OUT, "vista-con-lamina-minima.png"), optimize=True)
+    print(f"Hecho en {OUT} ({fondo.size[0]} px = {LADO + 2 * SANGRADO:g} mm a {PPP} ppp)")
+
+
+if __name__ == "__main__":
+    main()
