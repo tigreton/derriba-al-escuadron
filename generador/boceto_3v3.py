@@ -4,8 +4,7 @@ Dos disposiciones: "frente" (cara a cara, línea de frente vertical) y
 "esquinas" (cada escuadrón sale en abanico de una esquina, frente en diagonal).
 Saca aviones/boceto-3v3/boceto-3v3[-esquinas].png y avisa si dos huecos, una
 insignia o una nube quedan a menos de 2 mm entre sí o del marco.
-Las fuentes se buscan en CANVAS_FONTS (por defecto, la carpeta canvas-fonts de
-la skill canvas-design).
+Las fuentes (OFL) están en generador/fuentes; CANVAS_FONTS cambia la carpeta.
 Uso:  python boceto_3v3.py [frente|esquinas]   (sin argumento, las dos)
 """
 import math, os, sys
@@ -13,7 +12,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_DIR = os.path.join(ROOT, "aviones", "boceto-3v3")
-FONTS = os.environ.get("CANVAS_FONTS") or r"C:\Users\tigreton\AppData\Roaming\Claude\local-agent-mode-sessions\skills-plugin\c3d3d928-b081-4aaf-84d0-bec91b2e1548\f8c26230-eebc-45a4-be02-1c49063e1557\skills\canvas-design\canvas-fonts"
+FONTS = os.environ.get("CANVAS_FONTS") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "fuentes")
 
 SS = 3                      # supersampling
 W, H = 1830, 1260
